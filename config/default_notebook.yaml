@@ -1,0 +1,17 @@
+notebook:
+  id: 751c6a43-ac10-43dd-9961-78b87eb3a87e
+  title: CV Checker Interview Batch
+source_dir: /Users/starspulse/agent_projects/cv_checker/data/sources
+sources:
+- path: /Users/starspulse/agent_projects/cv_checker/data/sources/Analysis of the Representative
+    Wearable AI Hardware Ecosystem_ A Comprehensive Study of Teardown Architectures,
+    Supply Chain Economics, and Open-Source Hacking Paradigms (2024-2026).md
+  id: 1b5ece80-d59b-4de8-b9d4-eaf3244b2835
+- path: /Users/starspulse/agent_projects/cv_checker/data/sources/全球穿戴式 AI 硬件产业链全景图谱与商业效能深度研究报告.md
+  id: 16104495-658d-4ea4-9701-2505c6191991
+- path: /Users/starspulse/agent_projects/cv_checker/data/sources/穿戴式AI决策系统开发指南.md
+  id: c47d51cb-9e05-47a4-8a0f-ab39b0a7b8ad
+- path: /Users/starspulse/agent_projects/cv_checker/data/sources/穿戴式AI硬件创业决策系统闭环策略.md
+  id: 1ad3fb47-4886-4b01-a1e4-dcbe16de8051
+created_at: '2026-04-28T17:43:52+08:00'
+updated_at: '2026-04-28T20:05:22+08:00'

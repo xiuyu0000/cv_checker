@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# NotebookLM auth data
+.notebooklm/
+
+# UV lock file (optional, uncomment if you don't want to track it)
+# uv.lock
+
+# Data
+data/
+outputs/
+
+# MacOS
+.DS_Store

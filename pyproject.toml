@@ -1,0 +1,9 @@
+[project]
+name = "cv-checker"
+version = "0.1.0"
+description = "Automated CV checker using Google NotebookLM"
+requires-python = ">=3.14"
+dependencies = [
+    "notebooklm-py[browser]>=0.3.4",
+    "pyyaml>=6.0.3",
+]
