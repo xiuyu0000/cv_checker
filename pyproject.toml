@@ -6,4 +6,5 @@ requires-python = ">=3.14"
 dependencies = [
     "notebooklm-py[browser]>=0.3.4",
     "pyyaml>=6.0.3",
+    "socksio>=1.0.0",
 ]

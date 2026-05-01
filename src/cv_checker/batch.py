@@ -198,9 +198,11 @@ async def extract_candidate_profile(
         source_ids=source_ids,
     )
     data = _parse_json_object(answer)
+    candidate_name = clean_profile_field(str(data.get("candidate_name") or ""))
+    candidate_role = clean_profile_field(str(data.get("candidate_role") or ""))
     return CandidateProfile(
-        candidate_name=str(data.get("candidate_name") or "").strip(),
-        candidate_role=str(data.get("candidate_role") or "").strip(),
+        candidate_name=candidate_name,
+        candidate_role=candidate_role,
         summary=str(data.get("summary") or "").strip(),
         confidence=str(data.get("confidence") or "").strip(),
         raw_response=answer,
@@ -467,6 +469,13 @@ def candidate_name_from_filename(path: Path) -> str:
     if re.fullmatch(r"[\u4e00-\u9fff]{2,4}", first_token):
         return first_token
     return ""
+
+
+def clean_profile_field(value: str) -> str:
+    """Remove NotebookLM citation markers from short profile fields."""
+    cleaned = re.sub(r"\[(?:\d+|\d+\s*-\s*\d+)(?:\s*,\s*(?:\d+|\d+\s*-\s*\d+))*\]", "", value)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
 
 
 def unique_path(path: Path) -> Path:

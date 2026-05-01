@@ -8,12 +8,22 @@ import yaml
 
 from src.cv_checker.batch import (
     candidate_name_from_filename,
+    clean_profile_field,
     cleanup_unrecorded_sources,
     ensure_default_notebook,
     iter_cv_files,
     run_batch_interview_workflow,
 )
-from src.cv_checker.workflow import InterviewPromptError
+from src.cv_checker.workflow import InterviewPromptError, STAGE_DONE_MARKERS
+
+
+FIT_OUTPUT = "fit"
+GAPS_OUTPUT = "## 信息缺口\n缺口\n## 矛盾\n矛盾\n## 可疑与造假包装\n可疑造假包装\n## 真实性和重点考察\n真实性重点考察"
+TEMPLATE_OUTPUT = "template"
+
+
+def stage_output(stage: str, content: str) -> str:
+    return f"{content}\n\n{STAGE_DONE_MARKERS[stage]}"
 
 
 class BatchFileScanTests(unittest.TestCase):
@@ -34,6 +44,10 @@ class BatchFileScanTests(unittest.TestCase):
     def test_candidate_name_from_filename_uses_chinese_name_prefix_only(self) -> None:
         self.assertEqual(candidate_name_from_filename(Path("邱恒 27年应届生.pdf")), "邱恒")
         self.assertEqual(candidate_name_from_filename(Path("candidate.pdf")), "")
+
+    def test_clean_profile_field_removes_notebooklm_citations(self) -> None:
+        self.assertEqual(clean_profile_field("迟凯洲[1]"), "迟凯洲")
+        self.assertEqual(clean_profile_field("AI 开发工程师[1-4]"), "AI 开发工程师")
 
 
 class DefaultNotebookTests(unittest.IsolatedAsyncioTestCase):
@@ -93,8 +107,8 @@ class BatchWorkflowTests(unittest.IsolatedAsyncioTestCase):
             )
 
             profile = {
-                "candidate_name": "张三",
-                "candidate_role": "后端工程师",
+                "candidate_name": "张三[1]",
+                "candidate_role": "后端工程师[2-3]",
                 "summary": "候选人画像",
                 "confidence": "high",
             }
@@ -102,9 +116,9 @@ class BatchWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 patch("src.cv_checker.batch.add_source", AsyncMock(return_value="candidate-source")),
                 patch("src.cv_checker.batch.ask_notebook", AsyncMock(return_value=(json.dumps(profile), "profile-c"))) as profile_ask_mock,
                 patch("src.cv_checker.workflow.ask_notebook", AsyncMock(side_effect=[
-                    ("fit", "conversation-1"),
-                    ("gaps", "conversation-1"),
-                    ("template", "conversation-1"),
+                    (stage_output("fit_analysis", FIT_OUTPUT), "conversation-1"),
+                    (stage_output("information_gaps", GAPS_OUTPUT), "conversation-1"),
+                    (stage_output("interview_template", TEMPLATE_OUTPUT), "conversation-1"),
                 ])) as workflow_ask_mock,
                 patch("src.cv_checker.batch.delete_source", AsyncMock(return_value=True)),
             ):
@@ -125,13 +139,14 @@ class BatchWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 ["default-source", "candidate-source"],
             )
             candidate_output_dir = output_dir / "张三"
-            self.assertEqual((candidate_output_dir / "01_fit_analysis.md").read_text(encoding="utf-8"), "fit")
-            self.assertEqual((candidate_output_dir / "02_information_gaps.md").read_text(encoding="utf-8"), "gaps")
-            self.assertEqual((candidate_output_dir / "03_interview_template.md").read_text(encoding="utf-8"), "template")
+            self.assertEqual((candidate_output_dir / "01_fit_analysis.md").read_text(encoding="utf-8"), FIT_OUTPUT)
+            self.assertEqual((candidate_output_dir / "02_information_gaps.md").read_text(encoding="utf-8"), GAPS_OUTPUT)
+            self.assertEqual((candidate_output_dir / "03_interview_template.md").read_text(encoding="utf-8"), TEMPLATE_OUTPUT)
             saved_profile = json.loads(
                 (candidate_output_dir / "00_candidate_profile.json").read_text(encoding="utf-8")
             )
             self.assertEqual(saved_profile["candidate_name"], "张三")
+            self.assertEqual(saved_profile["candidate_role"], "后端工程师")
             self.assertFalse(cv_path.exists())
             self.assertTrue((processed_dir / "candidate.pdf").exists())
 
@@ -204,9 +219,9 @@ class BatchWorkflowTests(unittest.IsolatedAsyncioTestCase):
                     AsyncMock(return_value=('{"candidate_name": ""}', "profile-c")),
                 ),
                 patch("src.cv_checker.workflow.ask_notebook", AsyncMock(side_effect=[
-                    ("fit", "conversation-1"),
-                    ("gaps", "conversation-1"),
-                    ("template", "conversation-1"),
+                    (stage_output("fit_analysis", FIT_OUTPUT), "conversation-1"),
+                    (stage_output("information_gaps", GAPS_OUTPUT), "conversation-1"),
+                    (stage_output("interview_template", TEMPLATE_OUTPUT), "conversation-1"),
                 ])),
                 patch("src.cv_checker.batch.delete_source", AsyncMock(return_value=True)),
             ):
@@ -270,9 +285,9 @@ class BatchWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 patch("src.cv_checker.batch.add_source", AsyncMock(return_value="candidate-source")),
                 patch("src.cv_checker.batch.ask_notebook", AsyncMock(return_value=(json.dumps(profile), "profile-c"))),
                 patch("src.cv_checker.workflow.ask_notebook", AsyncMock(side_effect=[
-                    ("fit", "conversation-1"),
-                    ("gaps", "conversation-1"),
-                    ("template", "conversation-1"),
+                    (stage_output("fit_analysis", FIT_OUTPUT), "conversation-1"),
+                    (stage_output("information_gaps", GAPS_OUTPUT), "conversation-1"),
+                    (stage_output("interview_template", TEMPLATE_OUTPUT), "conversation-1"),
                 ])),
                 patch("src.cv_checker.batch.delete_source", AsyncMock(return_value=False)),
             ):
@@ -314,9 +329,9 @@ class BatchWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 patch("src.cv_checker.batch.add_source", AsyncMock(return_value="candidate-source")),
                 patch("src.cv_checker.batch.ask_notebook", AsyncMock(return_value=(json.dumps(profile), "profile-c"))),
                 patch("src.cv_checker.workflow.ask_notebook", AsyncMock(side_effect=[
-                    ("fit", "conversation-1"),
-                    ("gaps", "conversation-1"),
-                    ("template", "conversation-1"),
+                    (stage_output("fit_analysis", FIT_OUTPUT), "conversation-1"),
+                    (stage_output("information_gaps", GAPS_OUTPUT), "conversation-1"),
+                    (stage_output("interview_template", TEMPLATE_OUTPUT), "conversation-1"),
                 ])),
                 patch("src.cv_checker.batch.delete_source", AsyncMock(return_value=True)),
             ):
@@ -370,6 +385,51 @@ class BatchWorkflowTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(cv_path.exists())
             delete_mock.assert_awaited_once()
             manifest = json.loads((output_dir / "run_manifest.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(manifest["failure_stage"], "information_gaps")
+
+    async def test_run_batch_interview_workflow_keeps_cv_when_stage_validation_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            cv_dir = base_path / "cv"
+            cv_dir.mkdir()
+            cv_path = cv_dir / "candidate.pdf"
+            cv_path.write_text("cv", encoding="utf-8")
+            source_dir = base_path / "sources"
+            source_dir.mkdir()
+            output_dir = base_path / "out"
+            config_path = base_path / "default_notebook.yaml"
+            config_path.write_text("notebook:\n  id: notebook-1\nsources: []\n", encoding="utf-8")
+            profile = {"candidate_name": "孙七", "candidate_role": "", "summary": "", "confidence": "high"}
+
+            with (
+                patch("src.cv_checker.batch.add_source", AsyncMock(return_value="candidate-source")),
+                patch("src.cv_checker.batch.ask_notebook", AsyncMock(return_value=(json.dumps(profile), "profile-c"))),
+                patch("src.cv_checker.workflow.ask_notebook", AsyncMock(side_effect=[
+                    (stage_output("fit_analysis", FIT_OUTPUT), "conversation-1"),
+                    ("## 信息缺口\n只写到在", "conversation-1"),
+                    ("## 信息缺口\n仍不完整", "conversation-1"),
+                ])),
+                patch("src.cv_checker.batch.delete_source", AsyncMock(return_value=True)) as delete_mock,
+            ):
+                result = await run_batch_interview_workflow(
+                    object(),
+                    cv_dir=cv_dir,
+                    source_dir=source_dir,
+                    default_notebook_config_path=config_path,
+                    output_dir=output_dir,
+                    processed_dir=cv_dir / "processed",
+                )
+
+            self.assertEqual(result.processed_count, 0)
+            self.assertEqual(result.failed_count, 1)
+            self.assertTrue(cv_path.exists())
+            self.assertFalse((cv_dir / "processed" / "candidate.pdf").exists())
+            delete_mock.assert_awaited_once()
+            candidate_output_dir = output_dir / "孙七"
+            self.assertTrue((candidate_output_dir / "01_fit_analysis.md").exists())
+            self.assertFalse((candidate_output_dir / "02_information_gaps.md").exists())
+            manifest = json.loads((output_dir / "run_manifest.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(manifest["status"], "failed")
             self.assertEqual(manifest["failure_stage"], "information_gaps")
 
     async def test_cleanup_unrecorded_sources_deletes_only_non_default_sources(self) -> None:

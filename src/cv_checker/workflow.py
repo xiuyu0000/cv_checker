@@ -8,6 +8,20 @@ from .client import add_source, ask_notebook, create_notebook, delete_source
 from .config import load_workflow_config
 
 
+STAGE_OUTPUT_FILES = {
+    "fit_analysis": "01_fit_analysis.md",
+    "information_gaps": "02_information_gaps.md",
+    "interview_template": "03_interview_template.md",
+}
+
+STAGE_DONE_MARKERS = {
+    stage: f"<!-- CV_CHECKER_DONE:{stage} -->"
+    for stage in STAGE_OUTPUT_FILES
+}
+
+MAX_STAGE_VALIDATION_ATTEMPTS = 2
+
+
 @dataclass(frozen=True)
 class InterviewWorkflowResult:
     """Result metadata for a completed interview workflow run."""
@@ -39,6 +53,10 @@ class InterviewPromptError(RuntimeError):
         super().__init__(f"{stage} failed: {original_error}")
 
 
+class StageOutputValidationError(ValueError):
+    """Error raised when a NotebookLM stage response is structurally incomplete."""
+
+
 async def run_interview_prompts(
     client: NotebookLMClient,
     *,
@@ -59,49 +77,155 @@ async def run_interview_prompts(
         "candidate_role": candidate_role,
     }
     conversation_id: str | None = None
+
     try:
-        fit_analysis, conversation_id = await ask_notebook(
+        fit_prompt = _build_stage_prompt("fit_analysis", prompts["fit_analysis"], format_context)
+        fit_analysis, conversation_id = await _ask_validated_stage(
             client,
             notebook_id,
-            prompts["fit_analysis"].format(**format_context),
+            "fit_analysis",
+            fit_prompt,
             conversation_id=conversation_id,
             source_ids=source_ids,
         )
     except Exception as exc:
         raise InterviewPromptError("fit_analysis", exc) from exc
-    fit_analysis_path = output_dir / "01_fit_analysis.md"
+    fit_analysis_path = output_dir / STAGE_OUTPUT_FILES["fit_analysis"]
     fit_analysis_path.write_text(fit_analysis, encoding="utf-8")
 
     try:
-        information_gaps, conversation_id = await ask_notebook(
+        gaps_prompt = _build_stage_prompt(
+            "information_gaps",
+            prompts["information_gaps"],
+            format_context,
+            fit_analysis=fit_analysis,
+        )
+        information_gaps, conversation_id = await _ask_validated_stage(
             client,
             notebook_id,
-            prompts["information_gaps"].format(**format_context),
+            "information_gaps",
+            gaps_prompt,
             conversation_id=conversation_id,
             source_ids=source_ids,
         )
     except Exception as exc:
         raise InterviewPromptError("information_gaps", exc) from exc
-    information_gaps_path = output_dir / "02_information_gaps.md"
+    information_gaps_path = output_dir / STAGE_OUTPUT_FILES["information_gaps"]
     information_gaps_path.write_text(information_gaps, encoding="utf-8")
 
     try:
-        interview_template, _ = await ask_notebook(
+        template_prompt = _build_stage_prompt(
+            "interview_template",
+            prompts["interview_template"],
+            format_context,
+            fit_analysis=fit_analysis,
+            information_gaps=information_gaps,
+        )
+        interview_template, _ = await _ask_validated_stage(
             client,
             notebook_id,
-            prompts["interview_template"].format(**format_context),
+            "interview_template",
+            template_prompt,
             conversation_id=conversation_id,
             source_ids=source_ids,
         )
     except Exception as exc:
         raise InterviewPromptError("interview_template", exc) from exc
-    interview_template_path = output_dir / "03_interview_template.md"
+    interview_template_path = output_dir / STAGE_OUTPUT_FILES["interview_template"]
     interview_template_path.write_text(interview_template, encoding="utf-8")
 
     return InterviewPromptOutput(
         fit_analysis_path=fit_analysis_path,
         information_gaps_path=information_gaps_path,
         interview_template_path=interview_template_path,
+    )
+
+
+async def _ask_validated_stage(
+    client: NotebookLMClient,
+    notebook_id: str,
+    stage: str,
+    prompt: str,
+    *,
+    conversation_id: str | None,
+    source_ids: list[str] | None,
+) -> tuple[str, str | None]:
+    last_error: StageOutputValidationError | None = None
+    current_conversation_id = conversation_id
+    for attempt in range(MAX_STAGE_VALIDATION_ATTEMPTS):
+        answer, next_conversation_id = await ask_notebook(
+            client,
+            notebook_id,
+            prompt if attempt == 0 else _retry_prompt(stage, prompt, last_error),
+            conversation_id=current_conversation_id,
+            source_ids=source_ids,
+        )
+        current_conversation_id = next_conversation_id
+        try:
+            return validate_stage_output(stage, answer), next_conversation_id
+        except StageOutputValidationError as exc:
+            last_error = exc
+    raise last_error or StageOutputValidationError(f"{stage} output validation failed")
+
+
+def validate_stage_output(stage: str, answer: str) -> str:
+    """Validate a stage response and return Markdown with the completion marker removed."""
+    marker = STAGE_DONE_MARKERS[stage]
+    if marker not in answer:
+        raise StageOutputValidationError(f"missing completion marker {marker}")
+
+    content = answer.replace(marker, "").strip()
+    if not content:
+        raise StageOutputValidationError("empty stage output")
+
+    if stage == "information_gaps":
+        _validate_information_gaps(content)
+    return content
+
+
+def _validate_information_gaps(content: str) -> None:
+    required_groups = {
+        "信息缺口": ("信息缺口",),
+        "矛盾": ("矛盾", "冲突", "不一致"),
+        "可疑/造假/包装": ("可疑", "造假", "包装", "夸大"),
+        "真实性/重点考察": ("真实性", "重点考察", "进一步考察", "核实", "验证"),
+    }
+    missing = [
+        name
+        for name, keywords in required_groups.items()
+        if not any(keyword in content for keyword in keywords)
+    ]
+    if missing:
+        raise StageOutputValidationError(
+            "information_gaps missing required sections: " + ", ".join(missing)
+        )
+
+
+def _build_stage_prompt(
+    stage: str,
+    prompt_template: str,
+    format_context: dict[str, str],
+    *,
+    fit_analysis: str | None = None,
+    information_gaps: str | None = None,
+) -> str:
+    prompt_parts = [prompt_template.format(**format_context).strip()]
+    if fit_analysis is not None:
+        prompt_parts.append("以下是上一阶段已校验的适配分析，请以此为准继续分析：\n\n" + fit_analysis)
+    if information_gaps is not None:
+        prompt_parts.append("以下是上一阶段已校验的信息缺口分析，请以此为准继续设计模板：\n\n" + information_gaps)
+    prompt_parts.append(
+        "请完整回答。回答末尾必须单独追加以下结束标记，不要改写或省略："
+        f"\n{STAGE_DONE_MARKERS[stage]}"
+    )
+    return "\n\n".join(prompt_parts)
+
+
+def _retry_prompt(stage: str, prompt: str, last_error: StageOutputValidationError | None) -> str:
+    reason = str(last_error) if last_error else "stage output validation failed"
+    return (
+        f"{prompt}\n\n上一次回答未通过完整性校验：{reason}。\n"
+        "请重新输出该阶段的完整 Markdown，并确保覆盖所有要求，末尾保留指定结束标记。"
     )
 
 
