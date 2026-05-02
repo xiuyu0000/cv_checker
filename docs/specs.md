@@ -183,7 +183,7 @@ legacy 模式使用：
 - 字段：`created_at`
 - 字段：`updated_at`
 
-该文件是运行状态配置，只保存 NotebookLM id、source id、source 路径和时间戳，不保存候选人简历原文。
+该文件是运行状态配置，只保存 NotebookLM id、source id、source 路径和时间戳，不保存候选人简历原文。由于它可能包含本机绝对路径和 NotebookLM source id，团队协作时应把它视为本地运行状态，而不是通用业务资料或候选人数据。
 
 ## 行为规则与异常
 
@@ -194,7 +194,7 @@ legacy 模式使用：
 - 批量模式找不到 `--batch-cv-dir` 时，CLI 应通过参数错误终止。
 - 批量模式在没有显式 notebook id、没有默认 Notebook 配置且找不到 `--source-dir` 时，应拒绝运行。
 - 批量模式发现候选人姓名无法提取时，应删除当前 CV source，记录失败 manifest，不执行三阶段 prompt，也不移动本地 CV。
-- 批量模式的三阶段 prompt 失败时，manifest 的 `failure_stage` 应记录具体阶段；可能值包括 `add_source`、`profile`、`fit_analysis`、`information_gaps`、`interview_template`、`delete_source`、`move_cv`。
+- 批量模式的三阶段 prompt 失败时，manifest 的 `failure_stage` 应记录具体阶段；可能值包括 `add_source`、`profile`、`fit_analysis`、`information_gaps`、`interview_template`、`interview_prompts`、`delete_source`、`move_cv`。其中 `interview_prompts` 用于三阶段执行期间发生但无法归因到某个具体 prompt 阶段的兜底异常。
 - 批量模式如果候选人 source 删除失败，应记录失败，不移动本地 CV。
 - 找不到配置文件时，应抛出 `FileNotFoundError`。
 - 三阶段 prompt 配置缺失时，应抛出 `ValueError`。

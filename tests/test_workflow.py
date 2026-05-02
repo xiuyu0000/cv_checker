@@ -254,3 +254,36 @@ class InterviewWorkflowTests(unittest.IsolatedAsyncioTestCase):
                     )
 
             self.assertEqual(delete_mock.await_count, 1)
+
+    async def test_run_interview_workflow_keeps_candidate_source_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            candidate_cv = base_path / "candidate.md"
+            candidate_cv.write_text("candidate", encoding="utf-8")
+            output_dir = base_path / "out"
+
+            ask_mock = AsyncMock(
+                side_effect=[
+                    (stage_output("fit_analysis", FIT_OUTPUT), "conversation-1"),
+                    (stage_output("information_gaps", GAPS_OUTPUT), "conversation-1"),
+                    (stage_output("interview_template", TEMPLATE_OUTPUT), "conversation-1"),
+                ]
+            )
+
+            with (
+                patch("src.cv_checker.workflow.add_source", AsyncMock(return_value="source-1")),
+                patch("src.cv_checker.workflow.ask_notebook", ask_mock),
+                patch("src.cv_checker.workflow.delete_source", AsyncMock(return_value=True)) as delete_mock,
+            ):
+                result = await run_interview_workflow(
+                    object(),
+                    notebook_id="notebook-1",
+                    candidate_cv_path=candidate_cv,
+                    candidate_name="张三",
+                    output_dir=output_dir,
+                    delete_candidate_source_after_run=False,
+                )
+
+            delete_mock.assert_not_awaited()
+            self.assertFalse(result.candidate_source_deleted)
+            self.assertEqual((output_dir / "01_fit_analysis.md").read_text(encoding="utf-8"), FIT_OUTPUT)

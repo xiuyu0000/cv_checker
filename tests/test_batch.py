@@ -387,6 +387,46 @@ class BatchWorkflowTests(unittest.IsolatedAsyncioTestCase):
             manifest = json.loads((output_dir / "run_manifest.jsonl").read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(manifest["failure_stage"], "information_gaps")
 
+    async def test_run_batch_interview_workflow_records_interview_prompts_for_unclassified_prompt_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            cv_dir = base_path / "cv"
+            cv_dir.mkdir()
+            cv_path = cv_dir / "candidate.pdf"
+            cv_path.write_text("cv", encoding="utf-8")
+            source_dir = base_path / "sources"
+            source_dir.mkdir()
+            output_dir = base_path / "out"
+            config_path = base_path / "default_notebook.yaml"
+            config_path.write_text("notebook:\n  id: notebook-1\nsources: []\n", encoding="utf-8")
+            profile = {"candidate_name": "钱八", "candidate_role": "", "summary": "", "confidence": "high"}
+
+            with (
+                patch("src.cv_checker.batch.add_source", AsyncMock(return_value="candidate-source")),
+                patch("src.cv_checker.batch.ask_notebook", AsyncMock(return_value=(json.dumps(profile), "profile-c"))),
+                patch(
+                    "src.cv_checker.batch.run_interview_prompts",
+                    AsyncMock(side_effect=RuntimeError("unexpected prompt failure")),
+                ),
+                patch("src.cv_checker.batch.delete_source", AsyncMock(return_value=True)) as delete_mock,
+            ):
+                result = await run_batch_interview_workflow(
+                    object(),
+                    cv_dir=cv_dir,
+                    source_dir=source_dir,
+                    default_notebook_config_path=config_path,
+                    output_dir=output_dir,
+                    processed_dir=cv_dir / "processed",
+                )
+
+            self.assertEqual(result.processed_count, 0)
+            self.assertEqual(result.failed_count, 1)
+            self.assertTrue(cv_path.exists())
+            delete_mock.assert_awaited_once()
+            manifest = json.loads((output_dir / "run_manifest.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(manifest["failure_stage"], "interview_prompts")
+            self.assertIn("unexpected prompt failure", manifest["error"])
+
     async def test_run_batch_interview_workflow_keeps_cv_when_stage_validation_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
